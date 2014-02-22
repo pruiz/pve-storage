@@ -11,6 +11,7 @@ use base qw(PVE::Storage::Plugin);
 use PVE::Storage::LunCmd::Comstar;
 use PVE::Storage::LunCmd::Istgt;
 use PVE::Storage::LunCmd::Iet;
+use PVE::Storage::LunCmd::Generic;
 
 my @ssh_opts = ('-o', 'BatchMode=yes');
 my @ssh_cmd = ('/usr/bin/ssh', @ssh_opts);
@@ -29,7 +30,7 @@ my $lun_cmds = {
 my $zfs_unknown_scsi_provider = sub {
     my ($provider) = @_;
 
-    die "$provider: unknown iscsi provider. Available [comstar, istgt, iet]";
+    die "$provider: unknown iscsi provider. Available [comstar, istgt, iet, generic]";
 };
 
 my $zfs_get_base = sub {
@@ -41,6 +42,8 @@ my $zfs_get_base = sub {
         return PVE::Storage::LunCmd::Istgt::get_base;
     } elsif ($scfg->{iscsiprovider} eq 'iet') {
         return PVE::Storage::LunCmd::Iet::get_base;
+    } elsif ($scfg->{iscsiprovider} eq 'generic') {
+        return PVE::Storage::LunCmd::Generic::get_base;
     } else {
         $zfs_unknown_scsi_provider->($scfg->{iscsiprovider});
     }
@@ -63,6 +66,8 @@ sub zfs_request {
             $msg = PVE::Storage::LunCmd::Istgt::run_lun_command($scfg, $timeout, $method, @params);
         } elsif ($scfg->{iscsiprovider} eq 'iet') {
             $msg = PVE::Storage::LunCmd::Iet::run_lun_command($scfg, $timeout, $method, @params);
+        } elsif ($scfg->{iscsiprovider} eq 'generic') {
+            $msg = PVE::Storage::LunCmd::Generic::run_lun_command($scfg, $timeout, $method, @params);
         } else {
             $zfs_unknown_scsi_provider->($scfg->{iscsiprovider});
         }
@@ -320,10 +325,20 @@ sub properties {
         description => "iscsi provider",
         type => 'string',
     },
+        iscsihelper => {
+            description => "iSCSI helper command (used by generic iscsi provider to handle lun creation/deletion/etc.",
+            type => 'string',
+            optional => 1,
+        },
+        remotehelper => {
+            description => "Wether helper command should be invoked locally (at pmx host) or remotelly (at iscsi server).",
+            type => 'boolean',
+            optiona => 1,
+        },
         blocksize => {
             description => "block size",
             type => 'string',
-        }
+        },
     };
 }
 
@@ -336,7 +351,9 @@ sub options {
     pool => { fixed => 1 },
     blocksize => { fixed => 1 },
     iscsiprovider => { fixed => 1 },
-    content => { optional => 1 },
+    iscsihelper => { optional => 1 },
+    remotehelper => { optional => 1 },
+    content => { optional => 1 }
     };
 }
 
@@ -489,7 +506,6 @@ sub list_images {
     if (my $dat = $cache->{zfs}->{$zfspool}) {
 
     foreach my $image (keys %$dat) {
-
         my $volname = $dat->{$image}->{name};
         my $parent = $dat->{$image}->{parent};
 
