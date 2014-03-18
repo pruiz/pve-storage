@@ -381,15 +381,19 @@ sub properties {
         description => "host group for comstar views",
         type => 'string',
     },
-        lunhelper => {
-            description => "Helper command used by ZFS plugin handle lun creation/deletion/etc.",
-            type => 'string',
-        },
-        remotehelper => {
-            description => "Wether helper command should be invoked locally (at pmx host) or remotelly (at ZFS server).",
-            type => 'boolean',
-            optional => 1,
-        }
+    devbase => {
+        description => "ZFS device's base path at remote host (ie. /dev)",
+        type => 'string',
+    },
+    lunhelper => {
+        description => "Helper command used by ZFS plugin handle lun creation/deletion/etc.",
+        type => 'string',
+    },
+    remotehelper => {
+        description => "Wether helper command should be invoked locally (at pmx host) or remotelly (at ZFS server).",
+        type => 'boolean',
+        optional => 1,
+    }
     };
 }
 
