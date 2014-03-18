@@ -8,42 +8,95 @@ use PVE::Tools qw(run_command);
 use PVE::Storage::Plugin;
 
 use base qw(PVE::Storage::Plugin);
-use PVE::Storage::LunCmd::Comstar;
-use PVE::Storage::LunCmd::Istgt;
-use PVE::Storage::LunCmd::Iet;
 
 my @ssh_opts = ('-o', 'BatchMode=yes');
 my @ssh_cmd = ('/usr/bin/ssh', @ssh_opts);
 my $id_rsa_path = '/etc/pve/priv/zfs';
 
 my $lun_cmds = {
-    create_lu   => 1,
-    delete_lu   => 1,
-    import_lu   => 1,
-    modify_lu   => 1,
-    add_view    => 1,
-    list_view   => 1,
-    list_lu     => 1,
+    'create-lu' => 1, # Creates an iSCSI LUN for an existing ZFS zvol device.
+    'delete-lu' => 1, # Removes an existing iSCSI LUN for a given ZFS vol device.
+    'import-lu' => 1, # Imports a previously removed zvol device as iSCSI LUN.
+    'resize-lu' => 1, # Signal iSCSI stack when a shared zvol has been resized.
+    'share-lu'  => 1, # Enables sharing of a zvol/iSCSI LUN resource.
+    'get-lu-id' => 1, # Resolves a LUN's unique-id from it's device path.
+    'get-lu-no' => 1, # Resolves a LUN's number, from it's assigned unique id.
 };
 
-my $zfs_unknown_scsi_provider = sub {
-    my ($provider) = @_;
+sub encode_cfg_value {
+    my ($key, $value) = @_;
 
-    die "$provider: unknown iscsi provider. Available [comstar, istgt, iet]";
-};
+    if ($key eq 'nodes' || $key eq 'content') {
+        return join(',', keys(%$value));
+    }
+
+    return $value;
+}
+
+sub run_lun_command {
+    my ($scfg, $timeout, $method, @params) = @_;
+
+    my $msg = '';
+    my %vars = ();
+    my ($guid, $env, $lundev, $size) = undef;
+
+    my $helper = "$scfg->{lunhelper} $method ";
+    die "No 'lunhelper' defined" if !$helper;
+
+    $timeout = 10 if !$timeout;
+
+    if ($method eq 'create-lu') {
+        $lundev = $params[0];
+        $helper .= "$lundev ";
+    } elsif ($method eq 'delete-lu') {
+        $guid = $params[0];
+        $helper .= "$guid";
+    } elsif ($method eq 'resize-lu') {
+        $size = $params[0];
+        $guid = $params[1];
+        $helper .= "$guid $size";
+    } elsif ($method eq 'share-lu') {
+        $lundev = $params[0];
+        $helper .= "$lundev";
+    } elsif ($method eq 'get-lu-id') {
+        $lundev = $params[0];
+        $helper .= "$lundev";
+    } elsif ($method eq 'get-lu-no') {
+        $guid = $params[0];
+        $helper .= "$guid";
+    } else {
+        die "$method not implemented yet!";
+    }
+
+    # Common environment variables
+    $vars{SSHKEY} = "$id_rsa_path/$scfg->{portal}_id_rsa";
+    $vars{LUNDEV} = $lundev if $lundev;
+    $vars{LUNUUID} = $guid if $guid;
+
+    foreach my $k (keys %$scfg) {
+        $env .= "PMXCFG_$k=\"". encode_cfg_value($k, $scfg->{$k}) ."\" ";
+    }
+    foreach my $k (keys %vars) {
+        $env .= "PMXVAR_$k=\"$vars{$k}\" ";
+    }
+
+    my $output = sub {
+        my $line = shift;
+        $msg .= "$line";
+    };
+
+    my $target = 'root@' . $scfg->{portal};
+    my $cmd = !$scfg->{remotehelper} ? "$env $helper"
+        : [@ssh_cmd, '-i'. "$id_rsa_path/$scfg->{portal}_id_rsa", $target, "$env $helper"];
+
+    run_command($cmd, timeout => $timeout, outfunc => $output);
+
+    return $msg;
+}
 
 my $zfs_get_base = sub {
     my ($scfg) = @_;
-
-    if ($scfg->{iscsiprovider} eq 'comstar') {
-        return PVE::Storage::LunCmd::Comstar::get_base;
-    } elsif ($scfg->{iscsiprovider} eq 'istgt') {
-        return PVE::Storage::LunCmd::Istgt::get_base;
-    } elsif ($scfg->{iscsiprovider} eq 'iet') {
-        return PVE::Storage::LunCmd::Iet::get_base;
-    } else {
-        $zfs_unknown_scsi_provider->($scfg->{iscsiprovider});
-    }
+    return $scfg->{devbase};
 };
 
 sub zfs_request {
@@ -57,15 +110,7 @@ sub zfs_request {
     $timeout = 5 if !$timeout;
 
     if ($lun_cmds->{$method}) {
-        if ($scfg->{iscsiprovider} eq 'comstar') {
-            $msg = PVE::Storage::LunCmd::Comstar::run_lun_command($scfg, $timeout, $method, @params);
-        } elsif ($scfg->{iscsiprovider} eq 'istgt') {
-            $msg = PVE::Storage::LunCmd::Istgt::run_lun_command($scfg, $timeout, $method, @params);
-        } elsif ($scfg->{iscsiprovider} eq 'iet') {
-            $msg = PVE::Storage::LunCmd::Iet::run_lun_command($scfg, $timeout, $method, @params);
-        } else {
-            $zfs_unknown_scsi_provider->($scfg->{iscsiprovider});
-        }
+        $msg = run_lun_command($scfg, $timeout, $method, @params);
     } else {
         if ($method eq 'zpool_list') {
             $zfscmd = 'zpool';
@@ -175,7 +220,7 @@ sub zfs_parse_zvol_list {
     return $list;
 }
 
-sub zfs_get_lu_name {
+sub zfs_get_lu_guid {
     my ($scfg, $zvol) = @_;
     my $object;
 
@@ -186,11 +231,11 @@ sub zfs_get_lu_name {
         $object = "$base/$scfg->{pool}/$zvol";
     }
 
-    my $lu_name = zfs_request($scfg, undef, 'list_lu', $object);
+    my $guid = zfs_request($scfg, undef, 'get-lu-id', $object);
 
-    return $lu_name if $lu_name;
+    return $guid if $guid;
 
-    die "Could not find lu_name for zvol $zvol";
+    die "Could not find guid for zvol $zvol";
 }
 
 sub zfs_get_zvol_size {
@@ -205,29 +250,29 @@ sub zfs_get_zvol_size {
     die "Could not get zvol size";
 }
 
-sub zfs_add_lun_mapping_entry {
+sub zfs_share_lu {
     my ($scfg, $zvol, $guid) = @_;
 
     if (! defined($guid)) {
-    $guid = zfs_get_lu_name($scfg, $zvol);
+    $guid = zfs_get_lu_guid($scfg, $zvol);
     }
 
-    zfs_request($scfg, undef, 'add_view', $guid);
+    zfs_request($scfg, undef, 'share-lu', $guid);
 }
 
 sub zfs_delete_lu {
     my ($scfg, $zvol) = @_;
 
-    my $guid = zfs_get_lu_name($scfg, $zvol);
+    my $guid = zfs_get_lu_guid($scfg, $zvol);
 
-    zfs_request($scfg, undef, 'delete_lu', $guid);
+    zfs_request($scfg, undef, 'delete-lu', $guid);
 }
 
 sub zfs_create_lu {
     my ($scfg, $zvol) = @_;
 
     my $base = $zfs_get_base->($scfg);
-    my $guid = zfs_request($scfg, undef, 'create_lu', "$base/$scfg->{pool}/$zvol");
+    my $guid = zfs_request($scfg, undef, 'create-lu', "$base/$scfg->{pool}/$zvol");
 
     return $guid;
 }
@@ -236,15 +281,15 @@ sub zfs_import_lu {
     my ($scfg, $zvol) = @_;
 
     my $base = $zfs_get_base->($scfg);
-    zfs_request($scfg, undef, 'import_lu', "$base/$scfg->{pool}/$zvol");
+    zfs_request($scfg, undef, 'import-lu', "$base/$scfg->{pool}/$zvol");
 }
 
 sub zfs_resize_lu {
     my ($scfg, $zvol, $size) = @_;
 
-    my $guid = zfs_get_lu_name($scfg, $zvol);
+    my $guid = zfs_get_lu_guid($scfg, $zvol);
 
-    zfs_request($scfg, undef, 'modify_lu', "${size}K", $guid);
+    zfs_request($scfg, undef, 'resize-lu', "${size}K", $guid);
 }
 
 sub zfs_create_zvol {
@@ -269,7 +314,7 @@ sub zfs_get_lun_number {
 
     die "could not find lun_number for guid $guid" if !$guid;
 
-    return zfs_request($scfg, undef, 'list_view', $guid);
+    return zfs_request($scfg, undef, 'get-lu-no', $guid);
 }
 
 sub zfs_list_zvol {
@@ -320,10 +365,6 @@ sub plugindata {
 
 sub properties {
     return {
-    iscsiprovider => {
-        description => "iscsi provider",
-        type => 'string',
-    },
     blocksize => {
         description => "block size",
         type => 'string',
@@ -347,6 +388,15 @@ sub properties {
         description => "host group for comstar views",
         type => 'string',
     },
+        lunhelper => {
+            description => "Helper command used by ZFS plugin handle lun creation/deletion/etc.",
+            type => 'string',
+        },
+        remotehelper => {
+            description => "Wether helper command should be invoked locally (at pmx host) or remotelly (at ZFS server).",
+            type => 'boolean',
+            optional => 1,
+        }
     };
 }
 
@@ -358,12 +408,14 @@ sub options {
     target => { fixed => 1 },
     pool => { fixed => 1 },
     blocksize => { fixed => 1 },
-    iscsiprovider => { fixed => 1 },
     nowritecache => { optional => 1 },
     sparse => { optional => 1 },
     comstar_hg => { optional => 1 },
     comstar_tg => { optional => 1 },
     content => { optional => 1 },
+    lunhelper => { fixed => 1 },
+    remotehelper => { optional => 1 },
+    devbase => { fixed => 1 }
     };
 }
 
@@ -387,7 +439,7 @@ sub path {
     my $target = $scfg->{target};
     my $portal = $scfg->{portal};
 
-    my $guid = zfs_get_lu_name($scfg, $name);
+    my $guid = zfs_get_lu_guid($scfg, $name);
     my $lun = zfs_get_lun_number($scfg, $guid);
 
     my $path = "iscsi://$portal/$target/$lun";
@@ -439,7 +491,7 @@ sub create_base {
     zfs_request($scfg, undef, 'rename', "$scfg->{pool}/$name", "$scfg->{pool}/$newname");
 
     my $guid = zfs_create_lu($scfg, $newname);
-    zfs_add_lun_mapping_entry($scfg, $newname, $guid);
+    zfs_share_lu($scfg, $newname, $guid);
 
     my $running  = undef; #fixme : is create_base always offline ?
 
@@ -465,7 +517,7 @@ sub clone_image {
     zfs_request($scfg, undef, 'clone', "$scfg->{pool}/$basename\@$snap", "$scfg->{pool}/$name");
 
     my $guid = zfs_create_lu($scfg, $name);
-    zfs_add_lun_mapping_entry($scfg, $name, $guid);
+    zfs_share_lu($scfg, $name, $guid);
 
     return $name;
 }
@@ -482,7 +534,7 @@ sub alloc_image {
 
     zfs_create_zvol($scfg, $name, $size);
     my $guid = zfs_create_lu($scfg, $name);
-    zfs_add_lun_mapping_entry($scfg, $name, $guid);
+    zfs_share_lu($scfg, $name, $guid);
 
     return $name;
 }
@@ -499,7 +551,7 @@ sub free_image {
     do {
         my $err = $@;
         my $guid = zfs_create_lu($scfg, $name);
-        zfs_add_lun_mapping_entry($scfg, $name, $guid);
+        zfs_share_lu($scfg, $name, $guid);
         die $err;
     } if $@;
 
@@ -628,7 +680,7 @@ sub volume_snapshot_rollback {
 
     zfs_import_lu($scfg, $volname);
 
-    zfs_add_lun_mapping_entry($scfg, $volname);
+    zfs_share_lu($scfg, $volname);
 }
 
 sub volume_snapshot_delete {
