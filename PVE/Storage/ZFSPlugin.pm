@@ -23,16 +23,6 @@ my $lun_cmds = {
     'get-lu-no' => 1, # Resolves a LUN's number, from it's assigned unique id.
 };
 
-sub encode_cfg_value {
-    my ($key, $value) = @_;
-
-    if ($key eq 'nodes' || $key eq 'content') {
-        return join(',', keys(%$value));
-    }
-
-    return $value;
-}
-
 sub run_lun_command {
     my ($scfg, $timeout, $method, @params) = @_;
 
@@ -69,13 +59,13 @@ sub run_lun_command {
     }
 
     # Common environment variables
+    $vars{POOL} = $scfg->{pool};
+    $vars{TARGET} = $scfg->{target};
+    $vars{PORTAL} = $scfg->{portal};
     $vars{SSHKEY} = "$id_rsa_path/$scfg->{portal}_id_rsa";
     $vars{LUNDEV} = $lundev if $lundev;
     $vars{LUNUUID} = $guid if $guid;
 
-    foreach my $k (keys %$scfg) {
-        $env .= "PMXCFG_$k=\"". encode_cfg_value($k, $scfg->{$k}) ."\" ";
-    }
     foreach my $k (keys %vars) {
         $env .= "PMXVAR_$k=\"$vars{$k}\" ";
     }
