@@ -15,7 +15,6 @@ my $PORTAL = $ENV{'PMXVAR_PORTAL'};
 my $SSHKEY = $ENV{'PMXVAR_SSHKEY'};
 my @ssh_opts = ('-o', 'BatchMode=yes');
 my @ssh_cmd = ('/usr/bin/ssh', @ssh_opts);
-my $use_ssh = 0;
 
 my $get_lun_cmd_map = sub {
     my ($method) = @_;
@@ -73,9 +72,7 @@ sub run_lun_command {
 
     $target = 'root@' . $PORTAL;
 
-    my $cmd = $use_ssh ? 
-        [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $lunmethod, @params]
-        : [$luncmd, $lunmethod, @params];
+    my $cmd = [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $lunmethod, @params];
 
     Common::run_command($cmd, outfunc => $output, timeout => $timeout);
 
@@ -107,15 +104,10 @@ sub run_lun_command {
 
 my $command = shift;
 
-if ($command eq "--remote") {
-    $use_ssh = 1;
-    $command = shift;
-}
-
 die "No command specified." if !$command;
 die "No POOL name available at env." if !$POOL;
 die "No PORTAL address available at env." if !$PORTAL;
-die "No SSH key file path available at env." if $use_ssh && !$SSHKEY;
+die "No SSH key file path available at env." if !$SSHKEY;
 
 run_lun_command($command, @ARGV);
 
