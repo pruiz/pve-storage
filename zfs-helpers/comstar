@@ -1,0 +1,114 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Digest::MD5 qw(md5_hex);
+use Data::Dumper;
+use Common qw(run_command);
+
+$ENV{'PATH'} = '/sbin:/bin:/usr/sbin:/usr/bin';
+die "please run as root\n" if $> != 0;
+
+my $POOL = $ENV{'PMXVAR_POOL'};
+my $TARGET = $ENV{'PMXVAR_TARGET'};
+my $PORTAL = $ENV{'PMXVAR_PORTAL'};
+my $SSHKEY = $ENV{'PMXVAR_SSHKEY'};
+my @ssh_opts = ('-o', 'BatchMode=yes');
+my @ssh_cmd = ('/usr/bin/ssh', @ssh_opts);
+
+my $get_lun_cmd_map = sub {
+    my ($method) = @_;
+
+    my $stmfadmcmd = "/usr/sbin/stmfadm";
+    my $sbdadmcmd = "/usr/sbin/sbdadm";
+
+    my $cmdmap = {
+        'create-lu'   => { cmd => $stmfadmcmd, method => 'create-lu' },
+        'delete-lu'   => { cmd => $stmfadmcmd, method => 'delete-lu' },
+        'import-lu'   => { cmd => $stmfadmcmd, method => 'import-lu' },
+        'resize-lu'   => { cmd => $stmfadmcmd, method => 'modify-lu' },
+        'share-lu'    => { cmd => $stmfadmcmd, method => 'add-view' },
+        'get-lun-no'  => { cmd => $stmfadmcmd, method => 'list-view' },
+        'get-lun-id'  => { cmd => $sbdadmcmd,  method => 'list-lu' },
+    };
+
+    die "unknown command '$method'" unless exists $cmdmap->{$method};
+
+    return $cmdmap->{$method};
+};
+
+sub run_lun_command {
+    my ($method, @params) = @_;
+
+    my $msg = '';
+    my $luncmd;
+    my $target;
+    my $guid;
+    my $timeout = 10;
+
+    my $output = sub {
+    my $line = shift;
+    $msg .= "$line\n";
+    };
+
+    if ($method eq 'create-lu') {
+        my $prefix = '600144f';
+        my $digest = md5_hex($params[0]);
+        $digest =~ /(\w{7}(.*))/;
+        $guid = "$prefix$2";
+        @params = ('-p', 'wcd=false', '-p', "guid=$guid", @params);
+    } elsif ($method eq 'resize-lu') {
+        @params = ('-s', @params);
+    } elsif ($method eq 'get-lun-no') {
+        @params = ('-l', @params);
+    } elsif ($method eq 'get-lun-id') {
+        $guid = $params[0];
+        @params = undef;
+    }
+
+    my $cmdmap = $get_lun_cmd_map->($method);
+    $luncmd = $cmdmap->{cmd};
+    my $lunmethod = $cmdmap->{method};
+
+    $target = 'root@' . $PORTAL;
+
+    my $cmd = [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $lunmethod, @params];
+
+    Common::run_command($cmd, outfunc => $output, timeout => $timeout);
+
+    if ($method eq 'get-lun-no') {
+        my @lines = split /\n/, $msg;
+        $msg = undef;
+        foreach my $line (@lines) {
+            if ($line =~ /^\s*LUN\s*:\s*(\d+)$/) {
+                $msg = $1;
+                last;
+            }
+        }
+    } elsif ($method eq 'get-lun-id') {
+        my $object = $guid;
+        my @lines = split /\n/, $msg;
+        $msg = undef;
+        foreach my $line (@lines) {
+            if ($line =~ /(\w+)\s+\d+\s+$object$/) {
+                $msg = $1;
+                last;
+            }
+        }
+    } elsif ($method eq 'create-lu') {
+        $msg = $guid;
+    }
+
+    print $msg;
+}
+
+my $command = shift;
+
+die "No command specified." if !$command;
+die "No POOL name available at env." if !$POOL;
+die "No PORTAL address available at env." if !$PORTAL;
+die "No SSH key file path available at env." if !$SSHKEY;
+
+run_lun_command($command, @ARGV);
+
+exit 0;
