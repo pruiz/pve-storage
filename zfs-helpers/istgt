@@ -39,6 +39,7 @@ my $SSHKEY = $ENV{'PMXVAR_SSHKEY'};
 my @ssh_opts = ('-o', 'BatchMode=yes');
 my @ssh_cmd = ('/usr/bin/ssh', @ssh_opts);
 my @scp_cmd = ('/usr/bin/scp', @ssh_opts);
+my $use_ssh = 0;
 
 #Current SIGHUP reload limitations (http://www.peach.ne.jp/archives/istgt/):
 #
@@ -90,7 +91,9 @@ my $read_config = sub {
     my $daemon = 0;
     foreach my $config (@CONFIG_FILES) {
         $err = undef;
-        my $cmd = [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $config];
+        my $cmd = $use_ssh ?
+            [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $config]
+            : [ $luncmd, $config];
         eval {
             run_command($cmd, outfunc => $output, errfunc => $errfunc, timeout => $timeout);
         };
@@ -425,18 +428,10 @@ my $add_view = sub {
 
     if (@params && $params[0] eq 'restart') {
         @params = ('restart', '1>&2', '>', '/dev/null');
-        $cmdmap = {
-            cmd => 'ssh',
-            method => $DAEMON,
-            params => \@params,
-        };
+        $cmdmap = { cmd => 'ssh', method => $DAEMON, params => \@params };
     } else {
         @params = ('-HUP', '$(cat '. "$SETTINGS->{pidfile})");
-        $cmdmap = {
-            cmd => 'ssh',
-            method => 'kill',
-            params => \@params,
-        };
+        $cmdmap = { cmd => 'ssh', method => 'kill', params => \@params };
     }
 
     return $cmdmap;
@@ -523,9 +518,13 @@ sub run_lun_command {
             $method = $res->{method};
             @params = @{$res->{params}};
             if ($res->{cmd} eq 'scp') {
-                $cmd = [@scp_cmd, '-i', "$SSHKEY", $method, "$target:$params[0]"];
+                $cmd = $use_ssh ? 
+                    [@scp_cmd, '-i', "$SSHKEY", $method, "$target:$params[0]"]
+                    : [ 'cp', $method, "$target:$params[0]" ];
             } else {
-                $cmd = [@ssh_cmd, '-i', "$SSHKEY", $target, $method, @params];
+                $cmd = $use_ssh ? 
+                    [@ssh_cmd, '-i', "$SSHKEY", $target, $method, @params]
+                    : [ $method, @params];
             }
         } else {
             return $res;
@@ -533,7 +532,9 @@ sub run_lun_command {
     } else {
         $luncmd = $cmdmap->{cmd};
         $method = $cmdmap->{method};
-        $cmd = [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $method, @params];
+        $cmd = $use_ssh ?
+            [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $method, @params]
+            : [ $luncmd, $method, @params] ;
     }
 
     eval {
@@ -583,10 +584,15 @@ sub get_base {
 
 my $command = shift;
 
+if ($command eq "--remote") {
+    $use_ssh = 1;
+    $command = shift;
+}
+
 die "No command specified." if !$command;
 die "No POOL name available at env." if !$POOL;
 die "No PORTAL address available at env." if !$PORTAL;
-die "No SSH key file path available at env." if !$SSHKEY;
+die "No SSH key file path available at env." if $use_ssh && !$SSHKEY;
 
 run_lun_command(undef, $command, @ARGV);
 

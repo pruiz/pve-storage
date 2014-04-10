@@ -39,6 +39,7 @@ my $SSHKEY = $ENV{'PMXVAR_SSHKEY'};
 my @ssh_opts = ('-o', 'BatchMode=yes');
 my @ssh_cmd = ('/usr/bin/ssh', @ssh_opts);
 my @scp_cmd = ('/usr/bin/scp', @ssh_opts);
+my $use_ssh = 0;
 my $ietadm = '/usr/sbin/ietadm';
 
 sub get_base {
@@ -69,9 +70,13 @@ my $execute_command = sub {
     $target = "root@$PORTAL";
 
     if ($exec eq 'scp') {
-        $cmd = [@scp_cmd, '-i', "$SSHKEY", $method, "$target:$params[0]"];
+        $cmd = $use_ssh ? 
+            [@scp_cmd, '-i', "$SSHKEY", $method, "$target:$params[0]"]
+            : [ 'cp', $method, "$target:$params[0]" ];
     } else {
-        $cmd = [@ssh_cmd, '-i', "$SSHKEY", $target, $method, @params];
+        $cmd = $use_ssh ?
+            [@ssh_cmd, '-i', "$SSHKEY", $target, $method, @params]
+            : [ $target, $method, @params ];
     }
 
     eval {
@@ -113,7 +118,9 @@ my $read_config = sub {
 
     $target = 'root@' . $PORTAL;
 
-    my $cmd = [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $CONFIG_FILE];
+    my $cmd = $use_ssh ?
+        [@ssh_cmd, '-i', "$SSHKEY", $target, $luncmd, $CONFIG_FILE]
+        : [ $luncmd, $CONFIG_FILE ];
     eval {
         Common::run_command($cmd, outfunc => $output, errfunc => $errfunc, timeout => $timeout);
     };
@@ -477,10 +484,15 @@ sub run_lun_command {
 
 my $command = shift;
 
+if ($command eq "--remote") {
+    $use_ssh = 1;
+    $command = shift;
+}
+
 die "No command specified." if !$command;
 die "No POOL name available at env." if !$POOL;
 die "No PORTAL address available at env." if !$PORTAL;
-die "No SSH key file path available at env." if !$SSHKEY;
+die "No SSH key file path available at env." if $use_ssh && !$SSHKEY;
 
 run_lun_command(undef, $command, @ARGV);
 
