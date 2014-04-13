@@ -41,6 +41,9 @@ sub run_lun_command {
     } elsif ($method eq 'delete-lu') {
         $guid = $params[0];
         $helper .= "$guid";
+    } elsif ($method eq 'import-lu') {
+        $lundev = $params[0];
+        $helper .= "$lundev ";
     } elsif ($method eq 'resize-lu') {
         $size = $params[0];
         $guid = $params[1];
