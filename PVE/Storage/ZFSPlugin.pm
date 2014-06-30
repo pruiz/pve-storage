@@ -358,10 +358,6 @@ sub plugindata {
 
 sub properties {
     return {
-    iscsiprovider => {
-        description => "iscsi provider",
-        type => 'string',
-    },
     # this will disable write caching on comstar and istgt.
     # it is not implemented for iet. iet blockio always operates with 
     # writethrough caching when not in readonly mode
@@ -409,7 +405,6 @@ sub options {
     target => { fixed => 1 },
     pool => { fixed => 1 },
     blocksize => { fixed => 1 },
-    iscsiprovider => { fixed => 1 },
     nowritecache => { optional => 1 },
     sparse => { optional => 1 },
     comstar_hg => { optional => 1 },
