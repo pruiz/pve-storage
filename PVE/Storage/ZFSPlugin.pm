@@ -301,7 +301,7 @@ sub zfs_resize_lu {
 
     if ($scfg->{multipath}) {
         PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
-        PVE::Storage::MultiPathUtils::free_multipath_device($scfg->{portal}, $scfg->{target}, $lun);
+        PVE::Storage::MultiPathUtils::resize_multipath_device($scfg->{portal}, $scfg->{target}, $lun);
     }
 }
 
