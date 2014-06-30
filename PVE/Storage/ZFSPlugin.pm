@@ -594,6 +594,20 @@ sub status {
 
 sub activate_storage {
     my ($class, $storeid, $scfg, $cache) = @_;
+
+    if ($scfg->{multipath}) {
+        $cache->{iscsi_sessions} = PVE::Storage::ISCSIUtils::iscsi_session_list() if !$cache->{iscsi_sessions};
+
+        my $iscsi_sess = $cache->{iscsi_sessions}->{$scfg->{target}};
+        if (!defined ($iscsi_sess)) {
+            eval { PVE::Storage::ISCSIUtils::iscsi_login($scfg->{target}, $scfg->{portal}); };
+            warn $@ if $@;
+        } else {
+            # make sure we get all devices
+            PVE::Storage::ISCSIUtils::iscsi_session_rescan($iscsi_sess);
+        }
+    }
+
     return 1;
 }
 
