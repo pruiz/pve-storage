@@ -221,6 +221,7 @@ sub zfs_delete_lu {
     my ($scfg, $zvol) = @_;
 
     my $guid = zfs_get_lu_name($scfg, $zvol);
+    my $lun = zfs_get_lun_number($scfg, $guid);
 
     zfs_request($scfg, undef, 'delete_lu', $guid);
 
@@ -258,6 +259,7 @@ sub zfs_resize_lu {
     my ($scfg, $zvol, $size) = @_;
 
     my $guid = zfs_get_lu_name($scfg, $zvol);
+    my $lun = zfs_get_lun_number($scfg, $guid);
 
     zfs_request($scfg, undef, 'modify_lu', "${size}K", $guid);
 
@@ -371,7 +373,7 @@ sub properties {
         description => "Flag to enable use of local multipath instead of direct iSCSI access.",
         type => 'boolean',
         optional => 1,
-    },
+    }
     };
 }
 
