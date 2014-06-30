@@ -414,10 +414,6 @@ sub properties {
         type => 'boolean',
         optional => 1,
     },
-    blocksize => {
-        description => "block size",
-        type => 'string',
-    },
     multipath => {
         description => "Flag to enable use of local multipath instead of direct iSCSI access.",
         type => 'boolean',
