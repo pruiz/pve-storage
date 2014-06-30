@@ -6,6 +6,8 @@ use IO::File;
 use POSIX;
 use PVE::Tools qw(run_command);
 use PVE::Storage::Plugin;
+use PVE::Storage::ISCSIUtils;
+use PVE::Storage::MultiPathUtils;
 
 use base qw(PVE::Storage::Plugin);
 
@@ -259,6 +261,11 @@ sub zfs_delete_lu {
     my $guid = zfs_get_lu_guid($scfg, $zvol);
 
     zfs_request($scfg, undef, 'delete-lu', $guid);
+
+    if ($scfg->{multipath}) {
+        PVE::Storage::MultiPathUtils::free_multipath_device($scfg->{portal}, $scfg->{target}, $lun);
+        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
+    }
 }
 
 sub zfs_create_lu {
@@ -266,6 +273,10 @@ sub zfs_create_lu {
 
     my $base = $zfs_get_base->($scfg);
     my $guid = zfs_request($scfg, undef, 'create-lu', "$base/$scfg->{pool}/$zvol");
+
+    if ($scfg->{multipath}) {
+        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
+    }
 
     return $guid;
 }
@@ -275,6 +286,10 @@ sub zfs_import_lu {
 
     my $base = $zfs_get_base->($scfg);
     zfs_request($scfg, undef, 'import-lu', "$base/$scfg->{pool}/$zvol");
+
+    if ($scfg->{multipath}) {
+        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
+    }
 }
 
 sub zfs_resize_lu {
@@ -283,6 +298,11 @@ sub zfs_resize_lu {
     my $guid = zfs_get_lu_guid($scfg, $zvol);
 
     zfs_request($scfg, undef, 'resize-lu', "${size}K", $guid);
+
+    if ($scfg->{multipath}) {
+        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
+        PVE::Storage::MultiPathUtils::free_multipath_device($scfg->{portal}, $scfg->{target}, $lun);
+    }
 }
 
 sub zfs_create_zvol {
@@ -393,6 +413,11 @@ sub properties {
         description => "Wether helper command should be invoked locally (at pmx host) or remotelly (at ZFS server).",
         type => 'boolean',
         optional => 1,
+    },
+    multipath => {
+        description => "Flag to enable use of local multipath instead of direct iSCSI access.",
+        type => 'boolean',
+        optional => 1,
     }
     };
 }
@@ -412,7 +437,8 @@ sub options {
     content => { optional => 1 },
     lunhelper => { fixed => 1 },
     remotehelper => { optional => 1 },
-    devbase => { fixed => 1 }
+    devbase => { fixed => 1 },
+    multipath => { optional => 1 }
     };
 }
 
@@ -439,7 +465,8 @@ sub path {
     my $guid = zfs_get_lu_guid($scfg, $name);
     my $lun = zfs_get_lun_number($scfg, $guid);
 
-    my $path = "iscsi://$portal/$target/$lun";
+    my $path = !$scfg->{multipath} ? "iscsi://$portal/$target/$lun" :
+        PVE::Storage::MultiPathUtils::find_multipath_device($portal, $target, $lun);
 
     return ($path, $vmid, $vtype);
 }
