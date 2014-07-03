@@ -83,7 +83,7 @@ sub resize_multipath_device {
     my $item = find_multipath_item($portal, $target, $lun);
     my ($blockdev) = $item->{blockdev} =~ /(\S+)/; # taint filtering
 
-    my $cmd = [$MULTIPATHD. "-k\"resize map $blockdev\"" ];
+    my $cmd = [$MULTIPATHD, "-k\"resize map $blockdev\"" ];
     eval { run_command($cmd, outfunc => sub {}); };
 
     die "Resizing multipath device failed: $@" if $@;
