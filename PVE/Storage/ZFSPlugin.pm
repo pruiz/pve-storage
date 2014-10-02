@@ -259,6 +259,7 @@ sub zfs_delete_lu {
     my ($scfg, $zvol) = @_;
 
     my $guid = zfs_get_lu_guid($scfg, $zvol);
+    my $lun = zfs_get_lun_number($scfg, $guid);
 
     zfs_request($scfg, undef, 'delete-lu', $guid);
 
@@ -296,6 +297,7 @@ sub zfs_resize_lu {
     my ($scfg, $zvol, $size) = @_;
 
     my $guid = zfs_get_lu_guid($scfg, $zvol);
+    my $lun = zfs_get_lun_number($scfg, $guid);
 
     zfs_request($scfg, undef, 'resize-lu', "${size}K", $guid);
 
