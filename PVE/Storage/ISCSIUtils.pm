@@ -114,7 +114,7 @@ sub iscsi_logout {
 my $rescan_filename = "/var/run/pve-iscsi-rescan.lock";
 
 sub iscsi_session_rescan {
-    my $session_list = shift;
+    my ($session_list, $force) = @_;
 
     check_iscsi_support();
 
@@ -125,7 +125,7 @@ sub iscsi_session_rescan {
 	    utime undef, undef, $fh;
 	    close($fh);
 	}
-    } else {
+    } elsif (!$force) {
 	my $atime = $rstat->atime;
 	my $tdiff = time() - $atime;
 	# avoid frequent rescans
@@ -141,7 +141,7 @@ sub iscsi_session_rescan {
 }
 
 sub iscsi_target_rescan {
-    my ($target) = @_;
+    my ($target, $force) = @_;
 
     check_iscsi_support();
 
@@ -152,7 +152,7 @@ sub iscsi_target_rescan {
             utime undef, undef, $fh;
             close($fh);
         }
-    } else {
+    } elsif (!$force) {
         my $atime = $rstat->atime;
         my $tdiff = time() - $atime;
         # avoid frequent rescans
@@ -234,6 +234,11 @@ sub iscsi_device_list {
                 });
             }
 
+            my $dmuuid = undef;
+            if (-f "/sys/block/$bdev/dm/uuid") {
+                $dmuuid = file_read_firstline("/sys/block/$bdev/dm/uuid");
+            }
+
 	    my $blockdev = $stable_paths->{$bdev};
 	    return if !$blockdev;
 
@@ -251,7 +256,8 @@ sub iscsi_device_list {
 		'lun' => int($lun),
                 'blockdev' => $blockdev,
                 'slaves' => \@slaves,
-	    };
+                'dmuuid' => $dmuuid,
+            };
 
 	    #print "TEST: $target $session $host,$bus,$tg,$lun $blockdev\n"; 
 	});
