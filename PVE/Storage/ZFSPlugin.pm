@@ -265,7 +265,7 @@ sub zfs_delete_lu {
 
     if ($scfg->{multipath}) {
         PVE::Storage::MultiPathUtils::free_multipath_device($scfg->{portal}, $scfg->{target}, $lun);
-        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
+        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}, 1); # Let multipath/iscsiadm know
     }
 }
 
@@ -276,7 +276,7 @@ sub zfs_create_lu {
     my $guid = zfs_request($scfg, undef, 'create-lu', "$base/$scfg->{pool}/$zvol");
 
     if ($scfg->{multipath}) {
-        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
+        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}, 1); # Let multipath/iscsiadm know
     }
 
     return $guid;
@@ -289,7 +289,7 @@ sub zfs_import_lu {
     zfs_request($scfg, undef, 'import-lu', "$base/$scfg->{pool}/$zvol");
 
     if ($scfg->{multipath}) {
-        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
+        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}, 1); # Let multipath/iscsiadm know
     }
 }
 
@@ -302,7 +302,7 @@ sub zfs_resize_lu {
     zfs_request($scfg, undef, 'resize-lu', "${size}K", $guid);
 
     if ($scfg->{multipath}) {
-        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}); # Let multipath/iscsiadm know
+        PVE::Storage::ISCSIUtils::iscsi_target_rescan($scfg->{target}, 1); # Let multipath/iscsiadm know
         PVE::Storage::MultiPathUtils::resize_multipath_device($scfg->{portal}, $scfg->{target}, $lun);
     }
 }
@@ -653,7 +653,7 @@ sub activate_storage {
             warn $@ if $@;
         } else {
             # make sure we get all devices
-            PVE::Storage::ISCSIUtils::iscsi_session_rescan($iscsi_sess);
+            PVE::Storage::ISCSIUtils::iscsi_session_rescan($iscsi_sess, 1);
         }
     }
 

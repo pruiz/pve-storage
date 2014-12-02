@@ -42,6 +42,7 @@ sub find_multipath_item {
     foreach my $vid (keys %$target_devices) {
         my $item = $target_devices->{$vid};
         #print "$target -- $vid: $item->{lun} -- $item->{blockdev}\n";
+        next if (!defined($item->{dmuuid}) || $item->{dmuuid} !~ /^mpath-/);
         if ($item->{lun} == $lun) {
             return $item;
         }
