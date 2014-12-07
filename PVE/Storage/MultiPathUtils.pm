@@ -81,13 +81,16 @@ sub free_multipath_device {
 sub resize_multipath_device {
     my ($portal, $target, $lun) = @_;
 
-    my $item = find_multipath_item($portal, $target, $lun);
+    my $item = find_multipath_item($portal, $target, $lun)e
     my ($blockdev) = $item->{blockdev} =~ /(\S+)/; # taint filtering
 
-    my $cmd = [$MULTIPATHD, "-k\"resize map $blockdev\"" ];
-    eval { run_command($cmd, outfunc => sub {}); };
+    my $request = "reconfigure\nresize map $dmname\n";
+    my $cmd = [$MULTIPATHD, "-k" ];
+    eval { run_command($cmd, input => $request, outfunc => sub {}); };
 
     die "Resizing multipath device failed: $@" if $@;
+
+    return 1;
 }
 
 1;

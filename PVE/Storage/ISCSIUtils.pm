@@ -239,6 +239,11 @@ sub iscsi_device_list {
                 $dmuuid = file_read_firstline("/sys/block/$bdev/dm/uuid");
             }
 
+            my $dmname = undef;
+            if (-f "/sys/block/$bdev/dm/name") {
+                $dmname = file_read_firstline("/sys/block/$bdev/dm/name");
+            }
+
 	    my $blockdev = $stable_paths->{$bdev};
 	    return if !$blockdev;
 
@@ -257,6 +262,7 @@ sub iscsi_device_list {
                 'blockdev' => $blockdev,
                 'slaves' => \@slaves,
                 'dmuuid' => $dmuuid,
+                'dmname' => $dmname,
             };
 
 	    #print "TEST: $target $session $host,$bus,$tg,$lun $blockdev\n"; 
