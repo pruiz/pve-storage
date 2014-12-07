@@ -83,6 +83,7 @@ sub resize_multipath_device {
 
     my $item = find_multipath_item($portal, $target, $lun);
     my ($blockdev) = $item->{blockdev} =~ /(\S+)/; # taint filtering
+    my $dmname = $item->{dmname};
 
     my $request = "reconfigure\nresize map $dmname\n";
     my $cmd = [$MULTIPATHD, "-k" ];
